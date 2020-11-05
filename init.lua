@@ -14,6 +14,10 @@ btn_time = 3
 light_from = 17
 light_to = 7
 
+gpio.mode(pin_light, gpio.OUTPUT)
+gpio.mode(btn_wifi, gpio.INPUT)
+gpio.mode(btn_time, gpio.INPUT)
+
 function light()
     now = rtctime.get()
     print(now)
@@ -22,10 +26,8 @@ function light()
     hour = math.floor(minute / 60) + time_offset
     print("now: " , tostring(hour), ":", tostring(minute % 60))
     if hour > light_from or hour < light_to then
-        print("light on")
         gpio.write(pin_light, gpio.HIGH)
     else
-        print("light off")
         gpio.write(pin_light, gpio.LOW)
     end
 end
@@ -40,12 +42,12 @@ function sync_time()
     server_list = {"cn.pool.ntp.org", "CN.NTP.ORG.CN"}
     sntp.sync(server_list, function(sec, usec, server, info)
         print('sync', sec, usec, server)
-        light()
     end,
     function()
         print('failed to sync time!')
     end
     )
+    light()
 end
 
 -- enduser setup
@@ -67,9 +69,13 @@ end
 
 -- register btn_wifi
 print("registering btn_wifi")
-gpio.mode(btn_wifi, gpio.INPUT)
 gpio.write(btn_wifi, gpio.HIGH)
 function btn_wifi_fn()
+    gpio.trig(btn_wifi)
+    local time = tmr.create()
+    time:alarm(2000, tmr.ALARM_SINGLE, function()
+        gpio.trig(btn_wifi, 'up', btn_wifi_fn)
+    end)
     print("wifi btn clicked")
     eus()
 end
@@ -77,22 +83,48 @@ gpio.trig(btn_wifi, 'up', btn_wifi_fn)
 
 -- register btn_time
 print("registering btn_time")
-gpio.mode(btn_time, gpio.INPUT)
 gpio.write(btn_time, gpio.HIGH)
 function btn_time_fn()
+    gpio.trig(btn_time)
+    local time = tmr.create()
+    time:alarm(2000, tmr.ALARM_SINGLE, function()
+        gpio.trig(btn_time, 'up', btn_time_fn)
+    end)
     print("time btn clicked")
     sync_time()
 end
 gpio.trig(btn_time, 'up', btn_time_fn)
 
+-- global tmr
+night_light = tmr.create()
+night_light:alarm(60 * 1000, tmr.ALARM_SEMI, function()
+    light()
+end)
+
+wifi_disconnect = tmr.create()
+wifi_disconnect:alarm(1000, tmr.ALARM_AUTO, function()
+    if gpio.read(pin_light) == gpio.HIGH then
+        gpio.write(pin_light, gpio.LOW)
+    else
+        gpio.write(pin_light, gpio.HIGH)
+    end
+end)
+
 -- initial function
 function init()
-    gpio.mode(pin_light, gpio.OUTPUT)
-    sync_time()
-    local night_light = tmr.create()
-    night_light:alarm(60 * 1000, tmr.ALARM_AUTO, function()
-        light()
-    end)
+    
 end
 
-init()
+wifi.eventmon.register(wifi.eventmon.STA_CONNECTED, function(T)
+    print("connected")
+    wifi_disconnect:stop()
+    night_light:start()
+    sync_time()
+    init()
+end)
+
+wifi.eventmon.register(wifi.eventmon.STA_DISCONNECTED, function(T)
+    print("disconnected")
+    night_light:stop()
+    wifi_disconnect:start()
+end)
