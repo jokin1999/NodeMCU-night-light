@@ -30,6 +30,10 @@ function light()
     else
         gpio.write(pin_light, gpio.LOW)
     end
+    if now ~= 0 then
+        print('saving time: ' .. tostring(now))
+        file.putcontents('time.now', now)
+    end
 end
 
 -- CN time offset
@@ -40,14 +44,20 @@ function sync_time()
     -- sync time
     print("sync time...")
     server_list = {"cn.pool.ntp.org", "CN.NTP.ORG.CN"}
-    sntp.sync(server_list, function(sec, usec, server, info)
-        print('sync', sec, usec, server)
-    end,
-    function()
-        print('failed to sync time!')
-    end
-    )
-    light()
+    sntp.sync(server_list, 
+        function(sec, usec, server, info)
+            print('sync', sec, usec, server)
+            file.putcontents('time.now', sec)
+        end,
+        function()
+            print('failed to sync time!')
+            print('try to read local time')
+            if file.exists('time.now') then 
+                local t = file.getcontents('time.now')
+                rtctime.set(t)
+                print('using local time: ' .. tostring(t))
+            end
+        end)
 end
 
 -- enduser setup
@@ -97,17 +107,8 @@ gpio.trig(btn_time, 'up', btn_time_fn)
 
 -- global tmr
 night_light = tmr.create()
-night_light:alarm(60 * 1000, tmr.ALARM_SEMI, function()
+night_light:alarm(1000, tmr.ALARM_AUTO, function()
     light()
-end)
-
-wifi_disconnect = tmr.create()
-wifi_disconnect:alarm(1000, tmr.ALARM_AUTO, function()
-    if gpio.read(pin_light) == gpio.HIGH then
-        gpio.write(pin_light, gpio.LOW)
-    else
-        gpio.write(pin_light, gpio.HIGH)
-    end
 end)
 
 -- initial function
@@ -117,14 +118,8 @@ end
 
 wifi.eventmon.register(wifi.eventmon.STA_CONNECTED, function(T)
     print("connected")
-    wifi_disconnect:stop()
-    night_light:start()
     sync_time()
     init()
 end)
 
-wifi.eventmon.register(wifi.eventmon.STA_DISCONNECTED, function(T)
-    print("disconnected")
-    night_light:stop()
-    wifi_disconnect:start()
-end)
+sync_time()
