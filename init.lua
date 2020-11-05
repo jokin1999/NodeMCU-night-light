@@ -23,7 +23,7 @@ function light()
     print(now)
     sec = now % 86400
     minute = math.floor(sec / 60)
-    hour = math.floor(minute / 60) + time_offset
+    hour = (math.floor(minute / 60) + time_offset) % 24
     print("now: " , tostring(hour), ":", tostring(minute % 60))
     if hour > light_from or hour < light_to then
         gpio.write(pin_light, gpio.HIGH)
