@@ -14,9 +14,25 @@ btn_time = 3
 light_from = 17
 light_to = 7
 
+-- flags
+flag_sync_time = 0
+flag_blink = 0
+
 gpio.mode(pin_light, gpio.OUTPUT)
 gpio.mode(btn_wifi, gpio.INPUT)
 gpio.mode(btn_time, gpio.INPUT)
+
+function blink()
+    if flag_blink == 0 then
+        print("blink_on")
+        flag_blink = 1
+        gpio.write(pin_light, gpio.HIGH)
+    else
+        print("blink_off")
+        flag_blink = 0
+        gpio.write(pin_light, gpio.LOW)
+    end
+end
 
 function light()
     now = rtctime.get()
@@ -25,15 +41,19 @@ function light()
     minute = math.floor(sec / 60)
     hour = (math.floor(minute / 60) + time_offset) % 24
     print("now: " , tostring(hour), ":", tostring(minute % 60))
-    if hour >= light_from or hour <= light_to then
-        gpio.write(pin_light, gpio.HIGH)
+    -- blink when time is not set
+    if now == 0 then 
+        blink()
     else
-        gpio.write(pin_light, gpio.LOW)
-    end
-    if now ~= 0 then
+        if hour >= light_from or hour <= light_to then
+            gpio.write(pin_light, gpio.HIGH)
+        else
+            gpio.write(pin_light, gpio.LOW)
+        end
         print('saving time: ' .. tostring(now))
         file.putcontents('time.now', now)
     end
+
 end
 
 -- CN time offset
@@ -43,21 +63,28 @@ time_offset = 8
 function sync_time()
     -- sync time
     print("sync time...")
-    server_list = {"cn.pool.ntp.org", "CN.NTP.ORG.CN"}
-    sntp.sync(server_list, 
-        function(sec, usec, server, info)
-            print('sync', sec, usec, server)
-            file.putcontents('time.now', sec)
-        end,
-        function()
-            print('failed to sync time!')
-            print('try to read local time')
-            if file.exists('time.now') then 
-                local t = file.getcontents('time.now')
-                rtctime.set(t)
-                print('using local time: ' .. tostring(t))
-            end
-        end)
+    if flag_sync_time == 0 then
+        flag_sync_time = 1
+        server_list = {"cn.pool.ntp.org", "CN.NTP.ORG.CN"}
+        -- sync
+        sntp.sync(server_list, 
+            function(sec, usec, server, info)
+                print('sync', sec, usec, server)
+                file.putcontents('time.now', sec)
+            end,
+            function()
+                print('failed to sync time!')
+                print('try to read local time')
+                if file.exists('time.now') then 
+                    local t = file.getcontents('time.now')
+                    rtctime.set(t)
+                    print('using local time: ' .. tostring(t))
+                end
+            end)
+        -- ./sync
+    else
+        print("sync_time is running")
+    end
 end
 
 -- enduser setup
@@ -113,7 +140,7 @@ end)
 
 -- initial function
 function init()
-    
+    --pass
 end
 
 wifi.eventmon.register(wifi.eventmon.STA_CONNECTED, function(T)
